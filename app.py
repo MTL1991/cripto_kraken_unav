@@ -266,7 +266,7 @@ def update_line_chart(pair_to_call, interval_to_call):
     fig = go.Figure()
     if interval_to_call is None:
         interval_to_call = 21600
-    if pair_to_call not is None:
+    if pair_to_call is not None:
         df = get_df_ohlc(pair=pair_to_call, interval=interval_to_call)
         velas = go.Candlestick(x=df.human_time,
                                open=df.open,
