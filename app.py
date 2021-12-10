@@ -21,7 +21,7 @@ def get_pairs_available():
     return pd.DataFrame(data)
 
 
-def get_df_ohlc(pair="XXBTZUSD", interval=21600, start_time=''):
+def get_df_ohlc(pair="XBTUSDT", interval=21600, start_time=''):
     r_ohlc = k.query_public('OHLC', data="pair="+pair +
                             "&interval="+str(interval)
                             + "&since="+str(start_time))
@@ -49,7 +49,7 @@ def get_df_ohlc(pair="XXBTZUSD", interval=21600, start_time=''):
     return create_df_ohlc
 
 
-def get_df_trade(pair="XXBTZUSD", start_time=''):
+def get_df_trade(pair="XBTUSDT", start_time=''):
     r_trade = k.query_public('Trades', data="pair=" +
                              pair+"&since="+str(start_time))
     if r_trade['error'] != []:
@@ -68,32 +68,9 @@ def get_df_trade(pair="XXBTZUSD", start_time=''):
         create_df_trade['v_p'] = create_df_trade.apply(
             lambda row: row.price*row.volume, axis=1)
         step = (time_max-time_min)/30
-        human_time = []
-        open_list = []
-        close_list = []
-        high_list = []
-        low_list = []
-        vwap_list = []
-        for i in range(30):
-            create_df_trade_temp = create_df_trade[(
-                (create_df_trade.time) > (time_min+(i)*step))
-                & ((create_df_trade.time) < (time_min+(i+1)*step))]
-            if create_df_trade_temp.shape[0] != 0:
-                human_time.append(datetime.utcfromtimestamp(
-                    time_min+(i)*step).strftime('%Y-%m-%d %H:%M:%S'))
-                open_list.append(create_df_trade_temp.iloc[0].price)
-                close_list.append(create_df_trade_temp.iloc[-1].price)
-                high_list.append(create_df_trade_temp.price.max())
-                low_list.append(create_df_trade_temp.price.min())
-                if(create_df_trade_temp.volume.sum() > 0):
-                    vwap_list.append(create_df_trade_temp.v_p.sum(
-                    )/create_df_trade_temp.volume.sum())
-                else:
-                    vwap_list.append(0)
-        data = {'human_time': human_time, 'open': open_list,
-                'close': close_list, 'high': high_list,
-                'low': low_list, 'vwap': vwap_list}
-        return pd.DataFrame(data)
+        df_calculate = calculate_values_from_trades(
+            create_df_trade, time_min, time_max, step)
+        return df_calculate
 
     except Exception:
         data = {'human_time': [], 'open': [],
@@ -103,8 +80,37 @@ def get_df_trade(pair="XXBTZUSD", start_time=''):
     return create_df_trade
 
 
+def calculate_values_from_trades(create_df_trade, time_min, time_max, step):
+    human_time = []
+    open_list = []
+    close_list = []
+    high_list = []
+    low_list = []
+    vwap_list = []
+    for i in range(30):
+        create_df_trade_temp = create_df_trade[((create_df_trade.time) >
+                                                (time_min+i*step))
+                                               & ((create_df_trade.time)
+                                                  < (time_min+(i+1)*step))]
+        if create_df_trade_temp.shape[0] != 0:
+            human_time.append(datetime.utcfromtimestamp(
+                time_min+(i)*step).strftime('%Y-%m-%d %H:%M:%S'))
+            open_list.append(create_df_trade_temp.iloc[0].price)
+            close_list.append(create_df_trade_temp.iloc[-1].price)
+            high_list.append(create_df_trade_temp.price.max())
+            low_list.append(create_df_trade_temp.price.min())
+            if(create_df_trade_temp.volume.sum() > 0):
+                vwap_list.append(create_df_trade_temp.v_p.sum(
+                )/create_df_trade_temp.volume.sum())
+            else:
+                vwap_list.append(0)
+    data = {'human_time': human_time, 'open': open_list,
+            'close': close_list, 'high': high_list,
+            'low': low_list, 'vwap': vwap_list}
+    return pd.DataFrame(data)
+
+
 k = krakenex.API()
-df = get_df_ohlc()
 df_pairs = get_pairs_available()
 result = df_pairs.to_json(orient="records")
 parsed = json.loads(result)
@@ -167,7 +173,7 @@ app.layout = html.Div(
                         dcc.Dropdown(
                             id='choose-pair',
                             options=parsed,
-                            value='XBTUSDC',
+                            value='XBTUSDT',
                             clearable=False,
                             className="dropdown",
                         )
@@ -209,7 +215,7 @@ app.layout = html.Div(
                         dcc.Dropdown(
                             id='choose-pair-trade',
                             options=parsed,
-                            value='XBTUSDC',
+                            value='XBTUSDT',
                             clearable=False,
                             className="dropdown",
                         )
@@ -262,7 +268,7 @@ def toggle_container(toggle_value):
 @app.callback(
     Output("chart_ohlc", "figure"),
     [Input("choose-pair", "value"), Input("choose-grouptime", "value")])
-def update_line_chart(pair_to_call, interval_to_call):
+def update_ohlc_chart(pair_to_call, interval_to_call):
     fig = go.Figure()
     if interval_to_call is None:
         interval_to_call = 21600
@@ -277,7 +283,8 @@ def update_line_chart(pair_to_call, interval_to_call):
                                yaxis="y",
                                name='cotizacion',
                                visible=True)
-        linea = go.Scatter(x=df.human_time, y=df.vwap,
+        linea = go.Scatter(x=df[df.vwap != 0].human_time,
+                           y=df[df.vwap != 0].vwap,
                            mode='lines', name='vwap')
         fig.add_trace(velas)
         fig.add_trace(linea)
@@ -288,7 +295,7 @@ def update_line_chart(pair_to_call, interval_to_call):
 @app.callback(
     Output("chart_trade", "figure"),
     [Input("choose-pair-trade", "value")])
-def update_line_chart_calculate(pair_to_call):
+def update_trade_chart(pair_to_call):
     fig = go.Figure()
     if pair_to_call is not None:
         df = get_df_trade(pair=pair_to_call)
@@ -301,7 +308,8 @@ def update_line_chart_calculate(pair_to_call):
                                yaxis="y",
                                name='cotizacion',
                                visible=True)
-        linea = go.Scatter(x=df.human_time, y=df.vwap,
+        linea = go.Scatter(x=df[df.vwap != 0].human_time,
+                           y=df[df.vwap != 0].vwap,
                            mode='lines', name='vwap')
         fig.add_trace(velas)
         fig.add_trace(linea)
